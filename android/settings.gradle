@@ -1,0 +1,3 @@
+rootProject.name = 'jsconfsched'
+
+include ':app'
