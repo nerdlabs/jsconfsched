@@ -21,11 +21,104 @@ function zeropad(num) {
   return num <= 9 ? ('0' + num) : String(num);
 }
 
+function isNumber(num) {
+  return !Number.isNaN(num);
+}
+
+function isNotEmpty(string) {
+  return typeof string !== 'undefined' && string !== '';
+}
+
+function offsetChar(character, offset) {
+  return String.fromCharCode(character.charCodeAt(0) + offset);
+}
+
+function parseTalk(row, offset) {
+  var start = Number(row[offsetChar('A', offset)]);
+  var duration = Number(row[offsetChar('B', offset)]);
+  var id = Number(row[offsetChar('C', offset)]);
+  var speaker = row[offsetChar('E', offset)];
+  var title = row[offsetChar('F', offset)];
+  var link = row[offsetChar('H', offset)];
+  var hasSpeaker = isNotEmpty(speaker);
+  var hasTitle = isNotEmpty(title);
+  var location = 'Back Track';
+
+  if (offset === 9 ) {
+    location = 'Side Track';
+  }
+
+  if (!isNumber(id) || row[offsetChar('C', offset)] === '') {
+    location = 'Tent';
+  }
+
+  if (isNumber(start) && isNumber(duration) && hasSpeaker && hasTitle) {
+    return {
+      start: start,
+      duration: duration,
+      id: id,
+      speaker: speaker,
+      title: title,
+      link: link,
+      location: location
+    };
+  }
+}
+
+function parseSchedule(data) {
+  var talks = [];
+
+  var rows = data.feed.entry.reduce((rows, cell) => {
+    var row = Number(cell.title.$t.match(/\d+/)[0]);
+    var col = cell.title.$t.match(/[A-Z]/)[0];
+
+    if (!rows[row]) {
+      rows[row] = {};
+    }
+
+    rows[row][col] = cell.content.$t;
+
+    return rows;
+  }, {});
+
+  for (var key in rows) {
+    var row = rows[key];
+
+    var talk = parseTalk(row, 0); // parse talk at A{n}
+    if (talk) {
+      talks.push(talk);
+    }
+
+    talk = parseTalk(row, 9); // parse talk at J{n}
+    if (talk) {
+      talks.push(talk);
+    }
+
+    var lastTalk = talks[talks.length -1];
+    if (!lastTalk) { continue ;}
+    var hour = Math.floor(lastTalk.start);
+    var minute = Math.round(lastTalk.start % 1 * 100);
+    var date = Date.UTC(2015, 8, 25, hour, minute);
+
+    if (Number(key) >= 30) {
+      date = Date.UTC(2015, 8, 27, hour, minute);
+    }
+
+    lastTalk.start = date;
+  }
+
+
+  return talks;//.sort(function (a, b) { return a.start - b.start; });
+}
+
+
+
 var jsconfsched = React.createClass({
   getInitialState: function() {
     var ds = new ListView.DataSource({rowHasChanged: (r1, r2) => r1 !== r2});
 
     return {
+      ds: ds,
       dataSource: ds.cloneWithRows([
         {
           start: Date.UTC(2015, 8, 25, 6, 30),
@@ -33,60 +126,6 @@ var jsconfsched = React.createClass({
           speaker: 'all',
           title: 'Breakfast',
           location: 'Tent'
-        }, {
-          start: Date.UTC(2015, 8, 25, 7, 30),
-          duration: 30,
-          speaker: 'Curators',
-          title: 'Opening JSConf EU 2015',
-          location: 'Back Track'
-        }, {
-          start: Date.UTC(2015, 8, 25, 8, 0),
-          duration: 30,
-          speaker: 'Jennifer Wong',
-          title: 'I Think I Know What You\'re Talking About. But I\'m Not Sure',
-          location: 'Back Track'
-        }, {
-          start: Date.UTC(2015, 8, 25, 8, 30),
-          duration: 30,
-          speaker: 'Ryan Seddon',
-          title: 'So how does the browser actually render a website',
-          location: 'Back Track'
-        }, {
-          start: Date.UTC(2015, 8, 25, 9, 0),
-          duration: 15,
-          speaker: 'all',
-          title: 'Coffee break',
-          location: 'Tent'
-        }, {
-          start: Date.UTC(2015, 8, 25, 9, 15),
-          duration: 30,
-          speaker: 'Kai Jäger',
-          title: 'What it\'s like to live on the Edge',
-          location: 'Back Track'
-        }, {
-          start: Date.UTC(2015, 8, 25, 9, 45),
-          duration: 30,
-          speaker: 'Sam Richard',
-          title: 'Domo Arigato Mr. Roboto',
-          location: 'Back Track'
-        }, {
-          start: Date.UTC(2015, 8, 25, 10, 15),
-          duration: 30,
-          speaker: 'Denys Mishunov',
-          title: 'Illusion of Time. When 60 seconds is not 1 minute',
-          location: 'Back Track'
-        }, {
-          start: Date.UTC(2015, 8, 25, 10, 45),
-          duration: 60,
-          speaker: 'all',
-          title: 'Lunch',
-          location: 'Tent'
-        }, {
-          start: Date.UTC(2015, 8, 25, 11, 45),
-          duration: 30,
-          speaker: 'Marijn Haverbeke',
-          title: 'Salvaging contentEditable: Building a Robust WYSIWYM Editor',
-          location: 'Back Track'
         }
       ]),
     };
@@ -96,29 +135,14 @@ var jsconfsched = React.createClass({
     console.log('mounted');
     fetch('https://spreadsheets.google.com/feeds/cells/0AhO5JVicsAJOdGEyUTBZMXVUZXZ2c2tXMDVxcy1aX0E/od4/public/basic?alt=json')
       .then(response => response.json())
-      .then((data) => {
-        console.log('fetched data');
-        var rows = data.feed.entry.reduce((rows, cell) => {
-          var row = Number(cell.title.$t.match(/\d+/)[0]);
-          var col = cell.title.$t.match(/[A-Z]/)[0];
-
-          if (!rows[row]) {
-            rows[row] = {};
-          }
-
-          rows[row][col] = rows[row][col] = cell.content.$t;
-
-          return rows;
-        }, {});
-
-        for (var index in rows) {
-          if (Number.isNaN(Number(rows[index]['A']))) {
-            delete rows[index];
-          }
-        }
-
-        console.log(rows);
-      });
+      .then(parseSchedule)
+      .then(function (talks) {
+        console.log('parsed talks');
+        this.setState({
+          dataSource: this.state.ds.cloneWithRows(talks)
+        });
+      }.bind(this))
+      .catch(err => console.error(err));
 
     // setTimeout(() => {
     //   this.refs.list.getScrollResponder().scrollTo(100);
@@ -163,7 +187,7 @@ var jsconfsched = React.createClass({
 
   renderRow: function (talk) {
     var date = new Date(talk.start);
-    var startTime = date.getHours() + ':' + zeropad(date.getMinutes());
+    var startTime = date.getDate() + '.09 ' + zeropad(date.getHours()) + ':' + zeropad(date.getMinutes());
     return (
       <View style={styles.talk}>
         <Text>{talk.speaker}</Text>
